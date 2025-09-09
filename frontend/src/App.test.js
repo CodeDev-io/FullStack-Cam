@@ -1,8 +1,27 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+// Mock navigator.mediaDevices.getUserMedia
+navigator.mediaDevices = {
+  getUserMedia: () => Promise.resolve({}),
+};
+
+// Mock simple-peer
+jest.mock('simple-peer', () => {
+  return jest.fn().mockImplementation(() => {
+    return {
+      on: jest.fn(),
+      signal: jest.fn(),
+      destroy: jest.fn(),
+    };
+  });
+});
+
+// Mock window.prompt
+window.prompt = jest.fn();
+
+test('renders Verdi Live heading', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const headingElement = screen.getByText(/Verdi Live/i);
+  expect(headingElement).toBeInTheDocument();
 });

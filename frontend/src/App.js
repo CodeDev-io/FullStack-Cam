@@ -1,160 +1,208 @@
-import Button from "@material-ui/core/Button"
-import IconButton from "@material-ui/core/IconButton"
-import TextField from "@material-ui/core/TextField"
-import AssignmentIcon from "@material-ui/icons/Assignment"
-import PhoneIcon from "@material-ui/icons/Phone"
-import React, { useEffect, useRef, useState } from "react"
-import { CopyToClipboard } from "react-copy-to-clipboard"
-import Peer from "simple-peer"
-import io from "socket.io-client"
-import "./App.css"
+import React, { useEffect, useRef, useState } from "react";
+import io from "socket.io-client";
+import Peer from "simple-peer";
+import "./App.css";
 
-const socket = io.connect('https://fullstack-cam.onrender.com')
+const socket = io.connect("http://localhost:5000");
+
 function App() {
-const [ me, setMe ] = useState("")
-const [ stream, setStream ] = useState()
-const [ receivingCall, setReceivingCall ] = useState(false)
-const [ caller, setCaller ] = useState("")
-const [ callerSignal, setCallerSignal ] = useState()
-const [ callAccepted, setCallAccepted ] = useState(false)
-const [ idToCall, setIdToCall ] = useState("")
-const [ callEnded, setCallEnded] = useState(false)
-const [ name, setName ] = useState("")
-const myVideo = useRef()
-const userVideo = useRef()
-const connectionRef= useRef()
+  const [stream, setStream] = useState(null);
+  const [userName, setUserName] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [rooms, setRooms] = useState([]);
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [peers, setPeers] = useState([]);
+  const myVideo = useRef();
+  const peersRef = useRef([]);
 
-useEffect(() => {  
-	navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {  
-		setStream(stream)  
-			myVideo.current.srcObject = stream  
-	})  
+  useEffect(() => {
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        setStream(stream);
+        if (myVideo.current) {
+          myVideo.current.srcObject = stream;
+        }
+      });
 
-socket.on("me", (id) => {  
-		setMe(id)  
-	})  
+    socket.on("rooms-list", (rooms) => {
+      setRooms(rooms);
+    });
 
-	socket.on("callUser", (data) => {  
-		setReceivingCall(true)  
-		setCaller(data.from)  
-		setName(data.name)  
-		setCallerSignal(data.signal)  
-	})  
-}, [])  
+    socket.on("room-hosted", (room) => {
+      setCurrentRoom(room);
+    });
 
-const callUser = (id) => {  
-	const peer = new Peer({  
-		initiator: true,  
-		trickle: false,  
-		stream: stream  
-	})  
-	peer.on("signal", (data) => {  
-		socket.emit("callUser", {  
-			userToCall: id,  
-			signalData: data,  
-			from: me,  
-			name: name  
-		})  
-	})  
-	peer.on("stream", (stream) => {  
-		  
-			userVideo.current.srcObject = stream  
-		  
-	})  
-	socket.on("callAccepted", (signal) => {  
-		setCallAccepted(true)  
-		peer.signal(signal)  
-	})  
+    socket.on("room-joined", (room) => {
+      setCurrentRoom(room);
+    });
 
-	connectionRef.current = peer  
-}  
+    socket.on("user-joined", ({ userId }) => {
+      const peer = createPeer(userId, socket.id, stream);
+      peersRef.current.push({
+        peerID: userId,
+        peer,
+      });
+      setPeers((users) => [...users, peer]);
+    });
 
-const answerCall =() =>  {  
-	setCallAccepted(true)  
-	const peer = new Peer({  
-		initiator: false,  
-		trickle: false,  
-		stream: stream  
-	})  
-	peer.on("signal", (data) => {  
-		socket.emit("answerCall", { signal: data, to: caller })  
-	})  
-	peer.on("stream", (stream) => {  
-		userVideo.current.srcObject = stream  
-	})  
+    socket.on("call-made", ({ offer, socket: callerId }) => {
+      const peer = addPeer(offer, callerId, stream);
+      peersRef.current.push({
+        peerID: callerId,
+        peer,
+      });
+      setPeers((users) => [...users, peer]);
+    });
 
-	peer.signal(callerSignal)  
-	connectionRef.current = peer  
-}  
+    socket.on("answer-made", ({ answer, socket: answererId }) => {
+      const item = peersRef.current.find((p) => p.peerID === answererId);
+      item.peer.signal(answer);
+    });
 
-const leaveCall = () => {  
-	setCallEnded(true)  
-	connectionRef.current.destroy()  
-}  
+    socket.on("user-left", ({ userId }) => {
+      const item = peersRef.current.find((p) => p.peerID === userId);
+      if (item) {
+        item.peer.destroy();
+      }
+      const newPeers = peersRef.current.filter((p) => p.peerID !== userId);
+      peersRef.current = newPeers;
+      setPeers(newPeers);
+    });
 
-return (  
-	<>  
-		<h1 style={{ textAlign: "center", color: '#fff' }}>Verdi Live</h1>  
-	<div className="container">  
-		<div className="video-container">  
-			<div className="video">  
-				{stream &&  <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}  
-			</div>  
-			<div className="video">  
-				{callAccepted && !callEnded ?  
-				<video playsInline ref={userVideo} autoPlay style={{ width: "300px"}} />:  
-				null}  
-			</div>  
-		</div>  
-		<div className="myId">  
-			<TextField  
-				id="filled-basic"  
-				label="Name"  
-				variant="filled"  
-				value={name}  
-				onChange={(e) => setName(e.target.value)}  
-				style={{ marginBottom: "20px" }}  
-			/>  
-			<CopyToClipboard text={me} style={{ marginBottom: "2rem" }}>  
-				<Button variant="contained" color="primary" startIcon={<AssignmentIcon fontSize="large" />}>  
-					Copy ID  
-				</Button>  
-			</CopyToClipboard>  
+    return () => {
+      socket.off("rooms-list");
+      socket.off("room-hosted");
+      socket.off("room-joined");
+      socket.off("user-joined");
+      socket.off("call-made");
+      socket.off("answer-made");
+      socket.off("user-left");
+    };
+  }, [stream]);
 
-			<TextField  
-				id="filled-basic"  
-				label="ID to call"  
-				variant="filled"  
-				value={idToCall}  
-				onChange={(e) => setIdToCall(e.target.value)}  
-			/>  
-			<div className="call-button">  
-				{callAccepted && !callEnded ? (  
-					<Button variant="contained" color="secondary" onClick={leaveCall}>  
-						End Call  
-					</Button>  
-				) : (  
-					<IconButton color="primary" aria-label="call" onClick={() => callUser(idToCall)}>  
-						<PhoneIcon fontSize="large" />  
-					</IconButton>  
-				)}  
-				{idToCall}  
-			</div>  
-		</div>  
-		<div>  
-			{receivingCall && !callAccepted ? (  
-					<div className="caller">  
-					<h1 >{name} is calling...</h1>  
-					<Button variant="contained" color="primary" onClick={answerCall}>  
-						Answer  
-					</Button>  
-				</div>  
-			) : null}  
-		</div>  
-	</div>  
-	</>  
-)
+  const createPeer = (userToSignal, callerID, stream) => {
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
 
+    peer.on("signal", (signal) => {
+      socket.emit("call-user", {
+        userToSignal,
+        callerID,
+        signal,
+      });
+    });
+
+    peer.on("icecandidate", (candidate) => {
+      socket.emit("ice-candidate", {
+        to: userToSignal,
+        candidate,
+      });
+    });
+
+    return peer;
+  };
+
+  const addPeer = (incomingSignal, callerID, stream) => {
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+    });
+
+    peer.on("signal", (signal) => {
+      socket.emit("make-answer", {
+        answer: signal,
+        to: callerID,
+      });
+    });
+
+    peer.on("icecandidate", (candidate) => {
+      socket.emit("ice-candidate", {
+        to: callerID,
+        candidate,
+      });
+    });
+
+    peer.signal(incomingSignal);
+    return peer;
+  };
+
+  const hostRoom = () => {
+    socket.emit("host-room", { name: userName });
+  };
+
+  const findRooms = () => {
+    socket.emit("get-rooms");
+  };
+
+  const joinRoom = (roomId) => {
+    const key = prompt("Enter room key");
+    if (key) {
+      socket.emit("join-room", { roomId, key });
+    }
+  };
+
+  const leaveRoom = () => {
+    socket.emit("leave-room", { roomId: currentRoom.id });
+    setCurrentRoom(null);
+    peers.forEach((peer) => peer.destroy());
+    setPeers([]);
+    peersRef.current = [];
+  };
+
+  return (
+    <div className="App">
+      <h1>Verdi Live</h1>
+      <div className="video-wrapper">
+        <video muted ref={myVideo} autoPlay playsInline />
+        {peers.map((peer, index) => {
+          return <Video key={index} peer={peer} />;
+        })}
+      </div>
+      {!currentRoom ? (
+        <div className="controls">
+          <input
+            type="text"
+            placeholder="Enter your name"
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+          />
+          <button onClick={hostRoom}>Host Live</button>
+          <button onClick={findRooms}>Find Devices</button>
+          <div className="rooms-list">
+            {rooms.map((room) => (
+              <div key={room.id} className="room">
+                <span>{room.name}</span>
+                <button onClick={() => joinRoom(room.id)}>Join</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="room-info">
+          <h2>{currentRoom.name}</h2>
+          <p>Room Key: {currentRoom.key}</p>
+          <button onClick={leaveRoom}>Leave Room</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default App
+const Video = ({ peer }) => {
+  const ref = useRef();
+
+  useEffect(() => {
+    peer.on("stream", (stream) => {
+      ref.current.srcObject = stream;
+    });
+  }, [peer]);
+
+  return <video playsInline autoPlay ref={ref} />;
+};
+
+export default App;
