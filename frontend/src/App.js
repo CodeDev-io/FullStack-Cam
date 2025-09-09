@@ -95,15 +95,15 @@ function App() {
 
 	return (
 		<>
-			<h1 style={{ textAlign: "center", color: '#fff' }}>Zoomish</h1>
+			<h1>Verdi Live</h1>
 		<div className="container">
 			<div className="video-container">
 				<div className="video">
-					{stream &&  <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
+					{stream &&  <video playsInline muted ref={myVideo} autoPlay style={{ width: "500px" }} />}
 				</div>
 				<div className="video">
 					{callAccepted && !callEnded ?
-					<video playsInline ref={userVideo} autoPlay style={{ width: "300px"}} />:
+					<video playsInline ref={userVideo} autoPlay style={{ width: "500px"}} />:
 					null}
 				</div>
 			</div>
@@ -114,9 +114,8 @@ function App() {
 					variant="filled"
 					value={name}
 					onChange={(e) => setName(e.target.value)}
-					style={{ marginBottom: "20px" }}
 				/>
-				<CopyToClipboard text={me} style={{ marginBottom: "2rem" }}>
+				<CopyToClipboard text={me}>
 					<Button variant="contained" color="primary" startIcon={<AssignmentIcon fontSize="large" />}>
 						Copy ID
 					</Button>
